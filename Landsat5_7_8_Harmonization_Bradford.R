@@ -28,8 +28,7 @@
 library(reshape2)
 library(scales)
 
-################# CHANGE to your working directory
-setwd('\\sample_data')
+setwd('C:\\Users\\kglod\\UFL Dropbox\\Katie Glodzik\\Postdoc\\OtherProjects\\LandsatContinuity\\ArcGISoutputsForR\\sample_data')
 L5_NIR     = read.csv('L5_NIR_BandValues_Bradford.csv'      ,header=TRUE); L5_NIR    =L5_NIR[,-2]
 L5_Red     = read.csv('L5_Red_BandValues_Bradford.csv'      ,header=TRUE); L5_Red    =L5_Red[,-2]
 L7for5_NIR = read.csv('L7withL5_NIR_BandValues_Bradford.csv',header=TRUE); L7for5_NIR=L7for5_NIR[,-2]
@@ -98,28 +97,61 @@ regRed = lm(L8Red~L7Red,data=L8andL7pre); summary(regRed)$adj.r.squared
 ## Check  whether there are any date pairs that should be excluded because of major differences
 ## in values, which would suggest a large-scale change happened at the study area in between
 ## the matched images
+
+# First calculate point-level differences between matched pairs
 L8andL7$NIRdiff = abs(L8andL7$L8NIR - L8andL7$L7NIR)
 L8andL7$Reddiff = abs(L8andL7$L8Red - L8andL7$L7Red)
 
-## Plot the NIR difference between missions for date pairs
-par(mfrow=c(2,1),mar=c(4.5,3,1.1,0.6),mgp=c(2,0.4,0))
+# Aggregate point differences by date
+L7dates = unique(L8andL7$L7dateunique) ; L7dates
+
 L8andL7NIRdiff_agg = aggregate(L8andL7$NIRdiff, list(L8andL7$L7dateunique),FUN=mean,na.rm=TRUE); 
 L8andL7NIRdiff_agg$x = round(L8andL7NIRdiff_agg$x,4)
 L8andL7NIRdiff_agg[order(-L8andL7NIRdiff_agg$x),] ## take a look -- any pairs with unusually high differences?
-xseq = seq(1,length(L8andL7NIRdiff_agg$x))
-plot(L8andL7NIRdiff_agg$x ~ xseq,xaxt='n',pch=16,type='b',ylab='Mean NIR diff',xlab='')
-axis(1,at=xseq,labels=L8andL7NIRdiff_agg$Group.1,cex.axis=0.8,las=2)
-#  L7_20181205, L7_20220404b looks bad
 
 L8andL7Reddiff_agg = aggregate(L8andL7$Reddiff, list(L8andL7$L7dateunique),FUN=mean,na.rm=TRUE) 
 L8andL7Reddiff_agg$x = round(L8andL7Reddiff_agg$x,4)
 L8andL7Reddiff_agg[order(-L8andL7Reddiff_agg$x),] ## take a look -- any pairs with unusually high differences?
-xseq = seq(1,length(L8andL7Reddiff_agg$x))
-plot(L8andL7Reddiff_agg$x ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='Mean Red diff',xlab='')
-axis(1,at=xseq,labels=L8andL7Reddiff_agg$Group.1,cex.axis=0.8,las=2,tck=-0.02)
+
+# Also calculate R-squared values within each date pair and compile them
+L7L8NIR_Rsqs = L7L8Red_Rsqs = c()
+for (x in L7dates){
+  rsq = with(L8andL7[L8andL7$L7dateunique==x,], round(summary(lm(L8NIR~L7NIR))$adj.r.squared,3))
+  L7L8NIR_Rsqs[which(L7dates==x)]=rsq
+}
+for (x in L7dates){
+  rsq = with(L8andL7[L8andL7$L7dateunique==x,], round(summary(lm(L8Red~L7Red))$adj.r.squared,3))
+  L7L8Red_Rsqs[which(L7dates==x)]=rsq
+}
+
+# Get the R-squared values and average differences for Red and NIR together in a data frame
+L7L8Rsqs = data.frame(cbind(L7dates,L7L8NIR_Rsqs,L7L8Red_Rsqs))
+
+L7L8Rsqs = merge(L7L8Rsqs, L8andL7NIRdiff_agg, by.x = 'L7dates', by.y='Group.1')
+names(L7L8Rsqs)[length(L7L8Rsqs)]='L7L8NIR_diff'
+
+L7L8Rsqs = merge(L7L8Rsqs, L8andL7Reddiff_agg, by.x = 'L7dates', by.y='Group.1')
+names(L7L8Rsqs)[length(L7L8Rsqs)]='L7L8Red_diff'
+
+# Graphing R-squared values and average differences for individual dates
+xseq = seq(1,nrow(L7L8Rsqs))
+par(mfrow=c(2,1),mar=c(5.2,2.9,0.7,3.1),mgp=c(1.8,0.5,0))
+plot(L7L8Rsqs$L7L8NIR_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='NIR R-sq (black)',xlab='',ylim=c(0.33,0.96))
+axis(1,at=xseq,labels=L7L8Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
+par(new=TRUE);
+plot(L7L8Rsqs$L7L8NIR_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.0400))
+axis(4) ; mtext('NIR mean |difference|', side=4,line=1.8)
+#  L7_20181205, L7_20220404b looks bad
+# L7_20221202 little bad but leave and see if later pixel-by-pixel filtering fixes it
+
+plot(L7L8Rsqs$L7L8Red_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='Red R-sq (black)',xlab='',ylim=c(0.33,0.96))
+axis(1,at=xseq,labels=L7L8Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
+par(new=TRUE);
+plot(L7L8Rsqs$L7L8Red_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.0143))
+axis(4) ; mtext('Red mean |difference|', side=4,line=1.8)
 #  L7_20170116 looks bad
 
-# Eliminate data after 2020. Spectral drift means data is less reliable starting in 2021
+# Eliminate data after 2020. Spectral drift means Landsat 7 data is less reliable starting in 2021
 # https://pubs.usgs.gov/publication/70224264
 L8andL7$year = as.numeric(substr(L8andL7$L7date,4,7))
 L8andL7=L8andL7[L8andL7$year<=2020,]
@@ -136,7 +168,6 @@ regNIR = lm(L8NIR~L7NIR,data=L8andL7); summary(regNIR)$adj.r.squared
 regRed = lm(L8Red~L7Red,data=L8andL7); summary(regRed)$adj.r.squared
 
 L8andL7=L8andL7[rowSums(!is.na(L8andL7))==ncol(L8andL7), ]
-nrow(L8andL7)
 
 ## More noise filtering at the pixel level, based on cases where L8 and L7 found very different values 
 ## for pixels, which again suggest real changes on the ground in between matched dates, though
@@ -148,7 +179,7 @@ L8andL7$NIRnoisy     = ifelse(L8andL7$NIRnoisecalc > 1, 1, 0)
 L8andL7$Rednoisecalc = abs(L8andL7$L8Red-L8andL7$L7Red) / (0.5*abs(L8andL7$L8Red+L8andL7$L7Red))
 L8andL7$Rednoisy     = ifelse(L8andL7$Rednoisecalc > 1, 1, 0)
 
-# set "noisy" field to 1 in cases where either band is mismatched
+# set "noisy" field to 1 in cases where either band was flagged
 L8andL7$noisy = ifelse((L8andL7$NIRnoisy | L8andL7$Rednoisy) == 1, 1, 0)
 
 mean(L8andL7$noisy,na.rm=TRUE) # the portion removed via Roy 2016 adapted method. It will likely be tiny
@@ -170,7 +201,7 @@ L8andL7$NIRnoisy2 = ifelse(L8andL7$NIRdiff >
 L8andL7$Rednoisy2 = ifelse(L8andL7$Reddiff > 
                              mean(L8andL7$Reddiff,na.rm=TRUE) + 3*sd(L8andL7$Reddiff,na.rm=TRUE), 1, 0)
 
-# set "noisy2" field to 1 in cases where either band is mismatched
+# set "noisy2" field to 1 in cases where either band was flagged
 L8andL7$noisy2 = ifelse((L8andL7$NIRnoisy2 | L8andL7$Rednoisy2) == 1, 1, 0) # Set to 1 if either is high
 mean(L8andL7$noisy2,na.rm=TRUE) # the portion removed by new noise screening
 
@@ -201,52 +232,21 @@ for (x in L7dates){
   with(L8andL7pre[L8andL7pre$L7dateunique==x,], 
       plot(L8NIR~L7NIR, pch=3,col=alpha('navy',0.2),xlim=c(0.08,0.395), ylim=c(0.08,0.395),tck=-0.03))
       title(main=x,line=-0.85)
-  rsq = with(L8andL7pre[L8andL7pre$L7dateunique==x,], round(summary(lm(L8NIR~L7NIR))$adj.r.squared,3))
-  print(paste(x,rsq))
-  L7L8NIR_Rsqs[which(L7dates==x)]=rsq
 }
 
 for (x in L7dates){
   with(L8andL7pre[L8andL7pre$L7dateunique==x,], 
        plot(L8Red~L7Red, pch=3,col=alpha('navy',0.2),xlim=c(0.009,0.165),ylim=c(0.009,0.165),tck=-0.01))
        title(main=x,line=-0.85)
-  rsq = with(L8andL7pre[L8andL7pre$L7dateunique==x,], round(summary(lm(L8Red~L7Red))$adj.r.squared,3))
-  print(paste(x,rsq))
-  L7L8Red_Rsqs[which(L7dates==x)]=rsq
 }
 
-# Graphing R-squared and average differences across individual dates
-L7L8Rsqs = data.frame(cbind(L7dates,L7L8NIR_Rsqs,L7L8Red_Rsqs))
 
-L7L8Rsqs = merge(L7L8Rsqs, L8andL7NIRdiff_agg, by.x = 'L7dates', by.y='Group.1')
-  names(L7L8Rsqs)[length(L7L8Rsqs)]='L7L8NIR_diff'
-L7L8Rsqs = merge(L7L8Rsqs, L8andL7Reddiff_agg, by.x = 'L7dates', by.y='Group.1')
-  names(L7L8Rsqs)[length(L7L8Rsqs)]='L7L8Red_diff'
-
-L7dates = unique(L8andL7pre$L7dateunique) ; L7dates
-
-xseq = seq(1,nrow(L7L8Rsqs))
-par(mfrow=c(2,1),mar=c(5.2,2.9,0.7,3.1),mgp=c(1.8,0.5,0))
-plot(L7L8Rsqs$L7L8NIR_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='NIR R-sq (black)',xlab='',ylim=c(0.33,0.96))
-  axis(1,at=xseq,labels=L7L8Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
-par(new=TRUE);
-plot(L7L8Rsqs$L7L8NIR_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.0400))
-  axis(4) ; mtext('NIR mean |difference|', side=4,line=1.8)
-  
-plot(L7L8Rsqs$L7L8Red_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='Red R-sq (black)',xlab='',ylim=c(0.33,0.96))
-  axis(1,at=xseq,labels=L7L8Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
-par(new=TRUE);
-plot(L7L8Rsqs$L7L8Red_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.0143))
-  axis(4) ; mtext('Red mean |difference|', side=4,line=1.8)
-  
-
-# Graphing giant scatterplots
-  
+# Uncomment to graph giant scatterplots (TAKES A FEW MOMENTS TO RUN)
 #par(mfrow=c(3,2),mar=c(2.2,2.1,0.7,0.6),mgp=c(1.0,0.1,0))
 #with(L8andL7final,  plot(L8NIR~L7NIR, pch=3,col=alpha('navy',0.2),xlim=c(0.10,0.395),ylim=c(0.10,0.395)))
-#abline(a=0,b=1,lwd=2) ; abline(regNIR_L7asL8,col='tomato3',lwd=2)
+#  abline(a=0,b=1,lwd=2) ; abline(regNIR_L7asL8,col='tomato3',lwd=2)
 #with(L8andL7final,  plot(L8Red~L7Red, pch=3,col=alpha('navy',0.2),xlim=c(0.009,0.165),ylim=c(0.009,0.165)))
-#abline(a=0,b=1,lwd=2) ; abline(regRed_L7asL8,col='tomato3',lwd=2)
+#  abline(a=0,b=1,lwd=2) ; abline(regRed_L7asL8,col='tomato3',lwd=2)
 
 
 #############################################################################
@@ -272,65 +272,106 @@ L5andL7pre    = merge(L5andL7NIR, L5_Redlong    ,by=c('pixelID','L5date'),all.x=
 
 L5andL7pre    = merge(L5andL7pre, L7for5_Redlong,by=c('pixelID','L7date'),all.x=TRUE)
 
-# Copy the date frame and do noise removal on the new data frame
-L5andL7 = L5andL7pre
+# Copy the date frame and begin noise removal on the new data frame
+L5andL7 = L5andL7pre[rowSums(!is.na(L5andL7pre))==ncol(L5andL7pre), ]
 
-## Check out whether there are any date pairs that should be excluded because of major
-## differences in values, which would suggest a large-scale change happened in the study area.
+# For comparison, check regression now, BEFORE eliminating bad dates
+regNIR = lm(L7NIR~L5NIR,data=L5andL7); summary(regNIR)$adj.r.squared
+regRed = lm(L7Red~L5Red,data=L5andL7); summary(regRed)$adj.r.squared
 
-regNIR = lm(L7NIR~L5NIR,data=L5andL7pre); summary(regNIR)$adj.r.squared
-regRed = lm(L7Red~L5Red,data=L5andL7pre); summary(regRed)$adj.r.squared
+## Check  whether there are any date pairs that should be excluded because of major differences
+## in values, which would suggest a large-scale change happened at the study area in between
+## the matched images
 
+# First calculate point-level differences between matched pairs
 L5andL7$NIRdiff = abs(L5andL7$L5NIR - L5andL7$L7NIR)
 L5andL7$Reddiff = abs(L5andL7$L5Red - L5andL7$L7Red)
 
-par(mfrow=c(2,1),mar=c(4.7,3,0.7,0.6),mgp=c(2,0.4,0))
+# Aggregate point differences by date
+
+L7dates = unique(L5andL7$L7dateunique) ; L7dates
+
 L5andL7NIRdiff_agg = aggregate(L5andL7$NIRdiff, list(L5andL7$L7dateunique), FUN=mean,na.rm=TRUE) 
 L5andL7NIRdiff_agg$x = round(L5andL7NIRdiff_agg$x,4)
 L5andL7NIRdiff_agg[order(-L5andL7NIRdiff_agg$x),] ## take a look -- any pairs with unusually high differences?
-xseq = seq(1,length(L5andL7NIRdiff_agg$x))
-plot(L5andL7NIRdiff_agg$x ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='Mean NIR diff',xlab='')
-axis(1,at=xseq,labels=L5andL7NIRdiff_agg$Group.1,cex.axis=0.8,las=2,tck=-0.02)
 
 L5andL7Reddiff_agg = aggregate(L5andL7$Reddiff, list(L5andL7$L7dateunique), FUN=mean,na.rm=TRUE) 
 L5andL7Reddiff_agg$x = round(L5andL7Reddiff_agg$x,4)
 L5andL7Reddiff_agg[order(-L5andL7Reddiff_agg$x),] ## take a look -- any pairs with unusually high differences?
-xseq = seq(1,length(L5andL7Reddiff_agg$x))
-plot(L5andL7Reddiff_agg$x ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='Mean Red diff',xlab='')
-axis(1,at=xseq,labels=L5andL7Reddiff_agg$Group.1,cex.axis=0.8,las=2,tck=-0.02)
 
+# Also calculate R-squared values within each date pair and compile them
+L5L7NIR_Rsqs = L5L7Red_Rsqs = c()
+for (x in L7dates){
+  rsq = with(L5andL7pre[L5andL7pre$L7dateunique==x,], round(summary(lm(L5NIR~L7NIR))$adj.r.squared,3))
+  L5L7NIR_Rsqs[which(L7dates==x)]=rsq
+}
+for (x in L7dates){
+  rsq = with(L5andL7pre[L5andL7pre$L7dateunique==x,], round(summary(lm(L5Red~L7Red))$adj.r.squared,3))
+  L5L7Red_Rsqs[which(L7dates==x)]=rsq
+}
 
-## Based on looking also at R-squared further down, we remove the following because of NIR discrepancies.
+# Get the R-squared values and average differences for Red and NIR together in a data frame
+L5L7Rsqs = data.frame(cbind(L7dates,L5L7NIR_Rsqs,L5L7Red_Rsqs))
+
+L5L7Rsqs = merge(L5L7Rsqs, L5andL7NIRdiff_agg, by.x = 'L7dates', by.y='Group.1')
+names(L5L7Rsqs)[length(L5L7Rsqs)]='L5L7NIR_diff'
+
+L5L7Rsqs = merge(L5L7Rsqs, L5andL7Reddiff_agg, by.x = 'L7dates', by.y='Group.1')
+names(L5L7Rsqs)[length(L5L7Rsqs)]='L5L7Red_diff'
+
+# Graphing R-squared values and average differences for individual dates
+xseq = seq(1,nrow(L5L7Rsqs))
+par(mfrow=c(2,1),mar=c(5.2,2.8,0.7,2.9),mgp=c(1.8,0.5,0))
+plot(L5L7Rsqs$L5L7NIR_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='NIR R-sq',xlab='',ylim=c(0.33,0.96))
+axis(1,at=xseq,labels=L5L7Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
+par(new=TRUE);
+plot(L5L7Rsqs$L5L7NIR_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.400))
+axis(4) ; mtext('NIR diff', side=4,line=1.8)
+# L7_20090227 and L7_20101231 look bad
+
+plot(L5L7Rsqs$L5L7Red_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='Red R-sq',xlab='',ylim=c(0.33,0.96))
+axis(1,at=xseq,labels=L5L7Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
+par(new=TRUE);
+plot(L5L7Rsqs$L5L7Red_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.0143))
+axis(4) ; mtext('Red diff', side=4,line=1.8)
+# bit of judgement call for first couple dates but we'll keep all becausee R-squares are very good
+# and the magnitude of overall Red Difference is small (note right axis values)
+
+## Eliminate the bad pairs
 L5andL7=subset(L5andL7, subset = L7date != 'L7_20090227' & L7date != 'L7_20101231')
 L5andL7=L5andL7[rowSums(!is.na(L5andL7))==ncol(L5andL7), ]
-
-nrow(L5andL7)
 
 #Regression AFTER eliminating the bad pairs
 regNIR = lm(L7NIR~L5NIR,data=L5andL7); summary(regNIR)$adj.r.squared
 regRed = lm(L7Red~L5Red,data=L5andL7); summary(regRed)$adj.r.squared
 
-## Now lets do noise filtering by pixel, based on cases where L5 and L7 found very different values
-#  The first screening uses the method from Roy 2016, which only removes extremely misalligned data
+## More noise filtering at the pixel level, based on cases where L8 and L7 found very different values 
+## for pixels, which again suggest real changes on the ground in between matched dates, though
+## at a smaller scale now. First we use a screening method based on Roy 2016, which only removes 
+## extremely misalligned data
 L5andL7$NIRnoisecalc = abs(L5andL7$L5NIR-L5andL7$L7NIR) / (0.5*abs(L5andL7$L5NIR+L5andL7$L7NIR))
-L5andL7$NIRnoisy     = ifelse(L5andL7$NIRnoisecalc > 1, 1, 0) # Set to 1 if NIR disparity is high
+L5andL7$NIRnoisy     = ifelse(L5andL7$NIRnoisecalc > 1, 1, 0) 
 
 L5andL7$Rednoisecalc = abs(L5andL7$L5Red-L5andL7$L7Red) / (0.5*abs(L5andL7$L5Red+L5andL7$L7Red))
-L5andL7$Rednoisy     = ifelse(L5andL7$Rednoisecalc > 1, 1, 0) # Set to 1 if Red disparity is high
+L5andL7$Rednoisy     = ifelse(L5andL7$Rednoisecalc > 1, 1, 0) 
 
-L5andL7$noisy = ifelse((L5andL7$NIRnoisy | L5andL7$Rednoisy) == 1, 1, 0) # Set to 1 if either is high
+# set "noisy" field to 1 in cases where either band was flagged
+L5andL7$noisy = ifelse((L5andL7$NIRnoisy | L5andL7$Rednoisy) == 1, 1, 0)
 
-sum(L5andL7$noisy,na.rm=TRUE) # the portion removed
+sum(L5andL7$noisy,na.rm=TRUE) # the portion removed via Roy 2016 adapted method. It will likely be tiny
 
 # Environment clean up
-#L5andL7 = within(L5andL7, rm(NIRnoisy,Rednoisy,NIRnoisecalc,Rednoisecalc))
-#rm(L5_NIRlong,L7for5_NIRlong,L5_Redlong,L7for5_Redlong,L5andL7NIR)
+L5andL7 = within(L5andL7, rm(NIRnoisy,Rednoisy,NIRnoisecalc,Rednoisecalc))
+rm(L5_NIRlong,L7for5_NIRlong,L5_Redlong,L7for5_Redlong,L5andL7NIR)
 
-## We need to do more here because there are still some major disparities that suggest a major land
-#  change there in between the paired Landsat dates. Additional screening will be based simply on differences.
+## We need to do more here because there are still major disparities that suggest some type
+#  of change on the ground between the paired Landsat dates.
+#  Additional screening will be based simply on absolute differences.
 
-## To set an unacceptable amount of disparity, calculate mean and st. dev. of the L5-to-L7 differences
+## To set an unacceptable amount of disparity, calculate mean and st. dev. of the L8-to-L7 differences
 #  and we'll say the mean + 3*sd is the cut-off. Anything higher is eliminated.
+#  That is, we define an acceptable level of difference between date-matched pixels,
+#  and if the difference exceeds that, we assume real change happened on the ground and eliminate it
 L5andL7$NIRnoisy2 = ifelse(L5andL7$NIRdiff > 
                              mean(L5andL7$NIRdiff,na.rm=TRUE) + 3*sd(L5andL7$NIRdiff,na.rm=TRUE), 1, 0)
 L5andL7$Rednoisy2 = ifelse(L5andL7$Reddiff > 
@@ -354,8 +395,8 @@ L5andL7final=L5andL7final[rowSums(!is.na(L5andL7final))==ncol(L5andL7final), ]
 nrow(L5andL7final)
 
 # Regression AFTER eliminating noisy data
-regNIR_L5asL7 = lm(L7NIR~L5NIR,data=L5andL7final); summary(regNIR_L5asL7)#$adj.r.squared
-regRed_L5asL7 = lm(L7Red~L5Red,data=L5andL7final); summary(regRed_L5asL7)#$adj.r.squared
+regNIR_L5asL7 = lm(L7NIR~L5NIR,data=L5andL7final); summary(regNIR_L5asL7)$adj.r.squared
+regRed_L5asL7 = lm(L7Red~L5Red,data=L5andL7final); summary(regRed_L5asL7)$adj.r.squared
 
 # GRAPHING
 # Graphing scatterplots for individual dates
@@ -364,91 +405,61 @@ par(mfrow=c(5,7),mar=c(2.2,2.1,0.7,0.6),mgp=c(1.0,0.1,0))
 L5L7NIR_Rsqs = L5L7Red_Rsqs = c()
 
 for (x in L7dates){
-  with(L5andL7pre[L5andL7pre$L7dateunique==x,], 
+  with(L5andL7[L5andL7$L7dateunique==x,], 
       plot(L5NIR~L7NIR, pch=3,col=alpha('navy',0.2),xlim=c(0.08,0.395), ylim=c(0.08,0.395),tck=-0.03))
-      title(main=x,line=-0.85)
-  rsq = with(L5andL7pre[L5andL7pre$L7dateunique==x,], round(summary(lm(L5NIR~L7NIR))$adj.r.squared,3))
-  print(paste(x,rsq))
-  L5L7NIR_Rsqs[which(L7dates==x)]=rsq
+    title(main=x,line=-0.85)
 }
 
 for (x in L7dates){
-  with(L5andL7pre[L5andL7pre$L7dateunique==x,], 
+  with(L5andL7[L5andL7$L7dateunique==x,], 
        plot(L5Red~L7Red, pch=3,col=alpha('navy',0.2),xlim=c(0.009,0.165),ylim=c(0.009,0.165),tck=-0.01))
   title(main=x,line=-0.85)
-  rsq = with(L5andL7pre[L5andL7pre$L7dateunique==x,], round(summary(lm(L5Red~L7Red))$adj.r.squared,3))
-  print(paste(x,rsq))
-  L5L7Red_Rsqs[which(L7dates==x)]=rsq
 }
 
-L5L7Rsqs = data.frame(cbind(L7dates,L5L7NIR_Rsqs,L5L7Red_Rsqs))
-
-
-# Graphing R-squared and average differences across individual dates
-L7dates = unique(L5andL7$L7dateunique) ; L7dates
-L5L7Rsqs = data.frame(cbind(L7dates,L5L7NIR_Rsqs,L5L7Red_Rsqs))
-
-L5L7Rsqs = merge(L5L7Rsqs, L5andL7NIRdiff_agg, by.x = 'L7dates', by.y='Group.1')
-  names(L5L7Rsqs)[length(L5L7Rsqs)]='L5L7NIR_diff'
-L5L7Rsqs = merge(L5L7Rsqs, L5andL7Reddiff_agg, by.x = 'L7dates', by.y='Group.1')
-  names(L5L7Rsqs)[length(L5L7Rsqs)]='L5L7Red_diff'
-
-xseq = seq(1,nrow(L5L7Rsqs))
-par(mfrow=c(2,1),mar=c(5.2,2.8,0.7,2.9),mgp=c(1.8,0.5,0))
-plot(L5L7Rsqs$L5L7NIR_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='NIR R-sq',xlab='',ylim=c(0.33,0.96))
-  axis(1,at=xseq,labels=L5L7Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
-par(new=TRUE);
-plot(L5L7Rsqs$L5L7NIR_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.400))
-  axis(4) ; mtext('NIR diff', side=4,line=1.8)
-
-plot(L5L7Rsqs$L5L7Red_Rsqs ~ xseq,xaxt='n',pch=16,type='b',tck=-0.02,ylab='Red R-sq',xlab='',ylim=c(0.33,0.96))
-  axis(1,at=xseq,labels=L5L7Rsqs$L7dates,cex.axis=0.8,las=2,tck=-0.015)
-par(new=TRUE);
-plot(L5L7Rsqs$L5L7Red_diff ~ xseq,xaxt='n',yaxt='n',pch=16,type='b',tck=-0.02,col='blue',ylab='',xlab='',ylim=c(0.0032,0.0143))
-  axis(4) ; mtext('Red diff', side=4,line=1.8)
-
-
-# Graphing giant scatterplots
-
+# Uncomment to graph giant scatterplots (TAKES A FEW MOMENTS TO RUN)
 #par(mfrow=c(1,2),mar=c(2.2,2.1,0.7,0.6),mgp=c(1.0,0.1,0))
-
 #with(L5andL7final,plot(L7NIR~L5NIR, pch=3,col=alpha('navy',0.2),xlim=c(0.10,0.395),ylim=c(0.10,0.395)))
-# abline(a=0,b=1,lwd=2) ; abline(regNIR,col='tomato3',lwd=2)
+#  abline(a=0,b=1,lwd=2) ; abline(regNIR,col='tomato3',lwd=2)
 #with(L5andL7final,plot(L7Red~L5Red, pch=3,col=alpha('navy',0.2),xlim=c(0.008,0.157),ylim=c(0.008,0.157)))
-# abline(a=0,b=1,lwd=2) ; abline(regRed,col='tomato3',lwd=2)
+#  abline(a=0,b=1,lwd=2) ; abline(regRed,col='tomato3',lwd=2)
 
-## Good, that all looks good. Regressions that predict L8 values from L5 values do well.
-## Regressions that predict L7 values from L5 values do well. But now we need to relate L5
-## to L7 values that are in L8 terms.
-  
+#################################################################################################
+
+## Good so far. Now we have regressions that predicts L8-equivalent values from L7 values.
+## We have regressions that predicts L7-equivalent values from L5 values.
+
+## Now we need to apply the L7-as-L8 regression to L7 to derive them as L8-equivalent.
+## Then, regress these L8-equivalent L7 values against L5 values, to create a regression equation
+## that predicts L8-equivalent values from L5
+
 head(L5andL7final ,2)
 
-head(data.frame(L5andL7final$L7NIR))
-
+# Apply the L8-equivalent-from-L7 equation to L7, deriving a dataset of L8 equivalent values
 L5andL7final$L8equivL7NIR = predict(regNIR_L7asL8,  L5andL7final)
 L5andL7final$L8equivL7Red = predict(regRed_L7asL8,  L5andL7final)
 
-
-par(mfrow=c(2,1))
-#plot(L5andL7final$L7NIR,L5andL7final$L8equivL7NIR,pch=3,col=alpha('navy',0.2),xlim=c(0.10,0.395),ylim=c(0.10,0.395))
-#abline(a=0,b=1,lwd=2) 
-
-#plot(L5andL7final$L7Red,L5andL7final$L8equivL7Red,pch=3,col=alpha('navy',0.2),xlim=c(0.008,0.157),ylim=c(0.008,0.157)) 
-#abline(a=0,b=1,lwd=2) 
-
-
-regNIR = lm(L8equivL7NIR~L5NIR,data=L5andL7final) ; summary(regNIR)
-regRed = lm(L8equivL7Red~L5Red,data=L5andL7final) ; summary(regRed)
+# Regress the new L8-equivalent values against the L5 values
+regNIR_L5asL8 = lm(L8equivL7NIR~L5NIR,data=L5andL7final) ; summary(regNIR)
+regRed_L5asL8 = lm(L8equivL7Red~L5Red,data=L5andL7final) ; summary(regRed)
 
 head(L5andL7final)
 
+#Uncomment to run (these take a few moments)
+#par(mfrow=c(2,1),mar=c(1.8,2.1,0.5,0.6),mgp=c(1.0,0.1,0))
+#plot(L5andL7final$L8equivL7NIR~L5andL7final$L5NIR,pch=3,cex=0.8,col=alpha('dodgerblue3',0.4),xlim=c(0.10,0.395),ylim=c(0.10,0.395),xlab='L5 NIR',ylab='L8 equivalent NIR')
+#abline(a=0,b=1,lwd=2,lty='longdash')
+#abline(regNIR,col='red',lwd=2)
 
-par(mfrow=c(2,1),mar=c(1.8,2.1,0.5,0.6),mgp=c(1.0,0.1,0))
+#plot(L5andL7final$L8equivL7Red~L5andL7final$L5Red,pch=3,cex=0.8,col=alpha('dodgerblue3',0.1),xlim=c(0.008,0.157),ylim=c(0.008,0.157),xlab='L5 Red',ylab='L8 equivalent Red') 
+#abline(a=0,b=1,lwd=2,lty='longdash') 
+#abline(regRed,col='red',lwd=2)
 
-plot(L5andL7final$L8equivL7NIR~L5andL7final$L5NIR,pch=3,cex=0.8,col=alpha('dodgerblue3',0.4),xlim=c(0.10,0.395),ylim=c(0.10,0.395),xlab='L5 NIR',ylab='L8 equivalent NIR')
-abline(a=0,b=1,lwd=2,lty='longdash')
-abline(regNIR,col='red',lwd=2)
 
-plot(L5andL7final$L8equivL7Red~L5andL7final$L5Red,pch=3,cex=0.8,col=alpha('dodgerblue3',0.1),xlim=c(0.008,0.157),ylim=c(0.008,0.157),xlab='L5 Red',ylab='L8 equivalent Red') 
-abline(a=0,b=1,lwd=2,lty='longdash') 
-abline(regRed,col='red',lwd=2)
+############################
+## Final tegression equations which can be applied to Landsat 5 and 7 spectral reflectance
+#  to harmonize them with Landsat 8 spectral reflectance
+
+summary(regNIR_L7asL8)
+summary(regRed_L7asL8)
+summary(regNIR_L5asL8)
+summary(regRed_L5asL8)
